@@ -64,13 +64,53 @@ std::string PixyTracker::Version() {
 	return buffer.str();
 }
 
+int PixyTracker::getBlocksForSignature(int signature, unsigned int max_blocks, std::list<Target>& targets) {
+	Target target;
+
+	targets.clear();
+
+	std::lock_guard<std::mutex> lock(m_cmd_mutex);
+
+	if (m_pixy_init_status != 0) {
+			printf("Error: pixy_init() [%d] ", m_pixy_init_status);
+			pixy_error(m_pixy_init_status);
+			return m_pixy_init_status;
+	}
+
+	// Get blocks from Pixy
+	int blocks_copied = pixy_get_blocks(kBLOCK_BUFFER_SIZE, &m_blocks[0]);
+
+	if (blocks_copied < 0) {
+		printf("Error: pixy_get_blocks() [%d] ", blocks_copied);
+		pixy_error(blocks_copied);
+		return blocks_copied;
+	}
+
+	if (blocks_copied > 0) {
+		for (int i = 0; i < blocks_copied; ++i) {
+			// Ignore blocks that don't match the desired signature
+			if (m_blocks[i].signature != signature) {
+				continue;
+			}
+			target.block = m_blocks[i];
+			targets.push_back(target);
+			if (targets.size() == max_blocks) {
+				break;
+			}
+		}
+	}
+
+	m_targets = targets;
+	return targets.size();
+}
+
 // Track
 // Track the largest object of the specified signature
 // Return the number of objects found and the data for the largest object
 int PixyTracker::Track(int signature, Target& target) {
 	std::lock_guard<std::mutex> lock(m_cmd_mutex);
 
-	m_current_target.is_tracking = false;
+	target.is_tracking = false;
 
 	if (m_pixy_init_status != 0) {
 		printf("Error: pixy_init() [%d] ", m_pixy_init_status);
@@ -104,13 +144,15 @@ int PixyTracker::Track(int signature, Target& target) {
 
 			// Count the blocks of the matching signature
 			++blocks_found;
+			m_targets.clear();
 
 			// The first block found of the matching signature is the largest -- track it!
 			if (target_index < 0) {
 				target_index = i;
 
-				target.block = m_current_target.block = m_blocks[i];
-				m_current_target.is_tracking = true;
+				target.block = m_blocks[i];
+				target.is_tracking = true;
+				m_targets.push_back(target);
 
 				// Calculate the difference between the center of Pixy's focus and the target.
 				int pan_error  = kPIXY_X_CENTER() - m_blocks[i].x;
@@ -288,14 +330,17 @@ void PixyTracker::render(uint8_t renderFlags, uint16_t width, uint16_t height, u
 }
 
 void PixyTracker::sendToDashboard(uint16_t width, uint16_t height) {
-	// Draw target bounding box
-	cv::rectangle(m_image,
-			      cv::Point(m_current_target.block.x-m_current_target.block.width/2,
-			                m_current_target.block.y-m_current_target.block.height/2),
-			      cv::Point(m_current_target.block.x+m_current_target.block.width/2,
-					        m_current_target.block.y+m_current_target.block.height/2),
+	// Draw target bounding boxes
+	std::list<Target>::iterator itr;
+	for (itr=m_targets.begin(); itr!=m_targets.end(); itr++) {
+		cv::rectangle(m_image,
+			      cv::Point(itr->block.x - itr->block.width/2,
+			                itr->block.y - itr->block.height/2),
+			      cv::Point(itr->block.x + itr->block.width/2,
+					        itr->block.y + itr->block.height/2),
 				  cv::Scalar(0,255,255),
 			      2);
+	}
 
 	m_outputStreamStd.PutFrame(m_image);
 }

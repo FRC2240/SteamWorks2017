@@ -32,6 +32,9 @@ public:
 	// return:    number of targets detected
 	int Track(int signature, Target& target);
 
+	//
+	int getBlocksForSignature(int signature, unsigned int max_blocks, std::list<Target>& targets);
+
 private:
 
 	// Constants
@@ -50,7 +53,7 @@ private:
     const int kTILT_DERIVATIVE_GAIN   = 700;
 
 	Block 	     m_blocks [kBLOCK_BUFFER_SIZE];
-	Target		 m_current_target;
+	std::list<Target>		 m_targets;
 	int		     m_pixy_init_status;
 	cv::Mat      m_image;
 	uint8_t     *m_frame_buffer;
