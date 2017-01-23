@@ -27,6 +27,38 @@ void PixyTracker::printTargetInfo(Target& target) {
 	printf("Pan: %4d, Tilt: %4d\n", target.pan, target.tilt);
 }
 
+void PixyTracker::setForTracking(int b) {
+	std::lock_guard<std::mutex> lock(m_cmd_mutex);
+	int response = pixy_cam_set_brightness(b);
+	if (0 != response) {
+	    pixy_error(response);
+	}
+	response = pixy_cam_set_auto_white_balance(0);
+	if (0 != response) {
+		pixy_error(response);
+	}
+	response = pixy_cam_set_auto_exposure_compensation(0);
+	if (0 != response) {
+		pixy_error(response);
+	}
+}
+
+void PixyTracker::setForDriver(int b) {
+	std::lock_guard<std::mutex> lock(m_cmd_mutex);
+	int response = pixy_cam_set_brightness(b);
+	if (0 != response) {
+	    pixy_error(response);
+	}
+	response = pixy_cam_set_auto_white_balance(1);
+	if (0 != response) {
+		pixy_error(response);
+	}
+	response = pixy_cam_set_auto_exposure_compensation(1);
+	if (0 != response) {
+		pixy_error(response);
+	}
+}
+
 // startVideo
 void PixyTracker::startVideo() {
 	// Create a thread to grab the Pixy frames and send them
@@ -64,12 +96,10 @@ std::string PixyTracker::Version() {
 	return buffer.str();
 }
 
-int PixyTracker::getBlocksForSignature(int signature, unsigned int max_blocks, std::list<Target>& targets) {
-	Target target;
-
-	targets.clear();
-
+int PixyTracker::getBlocksForSignature(int signature, unsigned int max_blocks, Target* targets) {
 	std::lock_guard<std::mutex> lock(m_cmd_mutex);
+
+	m_target_count = 0;
 
 	if (m_pixy_init_status != 0) {
 			printf("Error: pixy_init() [%d] ", m_pixy_init_status);
@@ -86,22 +116,25 @@ int PixyTracker::getBlocksForSignature(int signature, unsigned int max_blocks, s
 		return blocks_copied;
 	}
 
+	unsigned int index = 0;
+
 	if (blocks_copied > 0) {
 		for (int i = 0; i < blocks_copied; ++i) {
 			// Ignore blocks that don't match the desired signature
 			if (m_blocks[i].signature != signature) {
 				continue;
 			}
-			target.block = m_blocks[i];
-			targets.push_back(target);
-			if (targets.size() == max_blocks) {
+			m_targets[index].block = targets[index].block = m_blocks[i];
+
+			++index;
+			if (index >= max_blocks) {
 				break;
 			}
 		}
 	}
 
-	m_targets = targets;
-	return targets.size();
+	m_target_count = index;
+	return index;
 }
 
 // Track
@@ -110,6 +143,7 @@ int PixyTracker::getBlocksForSignature(int signature, unsigned int max_blocks, s
 int PixyTracker::Track(int signature, Target& target) {
 	std::lock_guard<std::mutex> lock(m_cmd_mutex);
 
+	m_target_count = 0;
 	target.is_tracking = false;
 
 	if (m_pixy_init_status != 0) {
@@ -144,7 +178,6 @@ int PixyTracker::Track(int signature, Target& target) {
 
 			// Count the blocks of the matching signature
 			++blocks_found;
-			m_targets.clear();
 
 			// The first block found of the matching signature is the largest -- track it!
 			if (target_index < 0) {
@@ -152,7 +185,7 @@ int PixyTracker::Track(int signature, Target& target) {
 
 				target.block = m_blocks[i];
 				target.is_tracking = true;
-				m_targets.push_back(target);
+				m_targets[0] = target;
 
 				// Calculate the difference between the center of Pixy's focus and the target.
 				int pan_error  = kPIXY_X_CENTER() - m_blocks[i].x;
@@ -331,13 +364,12 @@ void PixyTracker::render(uint8_t renderFlags, uint16_t width, uint16_t height, u
 
 void PixyTracker::sendToDashboard(uint16_t width, uint16_t height) {
 	// Draw target bounding boxes
-	std::list<Target>::iterator itr;
-	for (itr=m_targets.begin(); itr!=m_targets.end(); itr++) {
+	for (int i=0; i<m_target_count; i++) {
 		cv::rectangle(m_image,
-			      cv::Point(itr->block.x - itr->block.width/2,
-			                itr->block.y - itr->block.height/2),
-			      cv::Point(itr->block.x + itr->block.width/2,
-					        itr->block.y + itr->block.height/2),
+			      cv::Point(m_targets[i].block.x - m_targets[i].block.width/2,
+			    		    m_targets[i].block.y - m_targets[i].block.height/2),
+			      cv::Point(m_targets[i].block.x + m_targets[i].block.width/2,
+			    		    m_targets[i].block.y + m_targets[i].block.height/2),
 				  cv::Scalar(0,255,255),
 			      2);
 	}

@@ -20,11 +20,11 @@ private:
 	} autoState = kDoNothing;
 
 	const int kTrackingBrightness = 20;
-	const int kNormalBrightness = 80;
+	const int kNormalBrightness = 128;
 
 	PixyTracker *m_pixy;
 	int m_signature = 1;
-	std::list<PixyTracker::Target> m_targets;
+	PixyTracker::Target m_gear_targets[2];
 
 	RobotDrive *drive;
 	TalonSRX   *lFrontMotor;
@@ -50,46 +50,38 @@ private:
 	//
 	class TurnPIDOutput : public PIDOutput {
 	public:
-		double turnOutput;
+		double correction;
 		void PIDWrite(double output) {
-			turnOutput = output;
+			correction = output;
 		}
 	} turnPIDOutput;
 
 	//
-	class TargetPIDOutput : public PIDOutput {
+	class StrafePIDOutput : public PIDOutput {
 	public:
-		double targetOutput;
+		double correction;
 		void PIDWrite(double output) {
-			targetOutput = output;
+			correction = output;
 		}
-	} targetPIDOutput;
+	} strafePIDOutput;
 
 	//
-	class TargetPIDSource : public PIDSource {
+	class StrafePIDSource : public PIDSource {
 	public:
-		TargetPIDSource() : offset(0.0) {}
+		StrafePIDSource() : offset(0.0) {}
 		double PIDGet() {
 			return offset;
 		}
-		void calcTargetOffset(std::list<PixyTracker::Target> &targets) {
-			if (0 == targets.size()) {
-				// FIXME: what to do in this case?
+		void calcTargetOffset(PixyTracker::Target* targets, int count) {
+			if (count < 2) {
 				offset = 0.0;
-			} else if (1 == targets.size()) {
-				offset = targets.front().block.x - 160;
-			} else if (2 == targets.size()) {
-				offset = 0.0;
-				std::list<PixyTracker::Target>::iterator itr;
-				for (itr=targets.begin(); itr!=targets.end(); itr++) {
-					offset += itr->block.x;
-				}
-				offset = offset/2.0 - 160;
+			} else {
+		        offset = (targets[0].block.x + targets[1].block.x)/2.0 - 160.0;
 			}
-		}
+	    }
 	private:
 		double offset;
-	} targetPIDSource;
+	} strafePIDSource;
 
 	float slider = 1.0;
 
@@ -133,21 +125,18 @@ private:
 			err_string += ex.what();
 			DriverStation::ReportError(err_string.c_str());
 		}
-		if (ahrs) {
-			LiveWindow::GetInstance()->AddSensor("IMU", "Gyro", ahrs);
-		}
 
 		drive = new RobotDrive(lFrontMotor, lBackMotor, rFrontMotor, rBackMotor);
 
 		turnController = new PIDController(kP, kI, kD, kF, ahrs, &turnPIDOutput);
 		turnController->SetInputRange(-180.0f,  180.0f);
-		turnController->SetOutputRange(-10.0, 10.0);
+		turnController->SetOutputRange(-1.0, 1.0);
 		turnController->SetAbsoluteTolerance(kToleranceDegrees);
 		turnController->SetContinuous(true);
 
-		strafeController = new PIDController(kP, kI, kD, kF, &targetPIDSource, &targetPIDOutput);
+		strafeController = new PIDController(kP, kI, kD, kF, &strafePIDSource, &strafePIDOutput);
 		strafeController->SetInputRange(-100.0, 100.0);
-		strafeController->SetOutputRange(-10.0, 10.0);
+		strafeController->SetOutputRange(-1.0, 1.0);
 		strafeController->SetAbsoluteTolerance(kToleranceStrafe);
 		strafeController->SetContinuous(true);
 
@@ -157,33 +146,55 @@ private:
 	}
 
 	void AutonomousInit() {
-		autoState = kTurning;
+		autoState = kDrivingForward;
 
 		// Initialize to zero
 		ahrs->ZeroYaw();
+		m_pixy->setForTracking(kTrackingBrightness);
 
 		turnController->SetSetpoint(0.0);
 		turnController->Enable();
+		strafeController->SetSetpoint(0.0);
+		strafeController->Enable();
+	}
+
+	void AutonomousDisabled() {
+		std::cout << "Autonomous Disabled\n";
+		m_pixy->setForDriver(kNormalBrightness);
+		turnController->Disable();
+		strafeController->Disable();
 	}
 
 	void AutonomousPeriodic() {
-		if (kTurning == autoState) {
-			drive->MecanumDrive_Cartesian(0, 0, turnPIDOutput.turnOutput ,ahrs->GetAngle());
+		/*if (kTurning == autoState) {
+			drive->MecanumDrive_Cartesian(0, 0, turnPIDOutput.turnOutput, ahrs->GetAngle());
 			if (turnPIDOutput.turnOutput < kToleranceDegrees) {
 				autoState = kDrivingForward;
 				strafeController->SetSetpoint(0.0);
 				strafeController->Enable();
 			}
-		}
-		if (kDrivingForward == autoState) {
-			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_targets);
-			targetPIDSource.calcTargetOffset(m_targets);
+		}*/
 
-			drive->MecanumDrive_Cartesian(0.1, targetPIDOutput.targetOutput,
-											   turnPIDOutput.turnOutput ,ahrs->GetAngle());
+		std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
+			lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;
+
+		std::cout << "Angle: " << ahrs->GetAngle() << "  Rate: " << ahrs->GetRate() << std::endl;
+
+		if (kDrivingForward == autoState) {
+			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_gear_targets);
+			strafePIDSource.calcTargetOffset(m_gear_targets, count);
+
+			std::cout << "turn correction   = " << turnPIDOutput.correction << std::endl;
+			std::cout << "strafe correction = " << strafePIDOutput.correction << std::endl;
+
+			drive->MecanumDrive_Cartesian(strafePIDOutput.correction,
+					                      0.2,
+									      turnPIDOutput.correction,
+										  ahrs->GetAngle());
 			if (2 == count) {
-				if (m_targets.front().block.width > 20) {
+				if (m_gear_targets[0].block.width > 40) {
 					//stop
+					std::cout << "Stopped" << std::endl;
 					drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle());
 				}
 			}
@@ -197,17 +208,18 @@ private:
 	}
 
 	void TeleopPeriodic() { // 0: leftX, 1: leftY, 2: left trigger, 3: right trigger, 4: rightX, 5: rightY
-		slider = (stick->GetRawAxis(4)+1)/2;
+		slider = 1.0; //(stick->GetRawAxis(4)+1)/2;
 
 		drive->MecanumDrive_Cartesian(
-				slider * deadBand(stick->GetRawAxis(0)),
-				slider * deadBand(stick->GetRawAxis(1)),
-				slider * (-1)*deadBand(stick->GetRawAxis(2)),
+				0.2, 0.0, 0.0,
+				//slider * deadBand(stick->GetRawAxis(0)),
+				//slider * deadBand(stick->GetRawAxis(1)),
+				//0.2 * (-1)*deadBand(stick->GetRawAxis(2)),
 				ahrs->GetAngle());
 
 		// DEBUG
 		std::cout << std::setprecision(3) << std::fixed;
-		std::cout << "Axis 0: " << stick->GetRawAxis(0) << "  Axis 1: " << stick->GetRawAxis(1) << "  Axis 4: " << stick->GetRawAxis(4) << std::endl;
+		//std::cout << "Axis 0: " << stick->GetRawAxis(0) << "  Axis 1: " << stick->GetRawAxis(1) << "  Axis 4: " << stick->GetRawAxis(4) << std::endl;
 
 		std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
 				lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;

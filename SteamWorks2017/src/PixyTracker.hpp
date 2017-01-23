@@ -23,6 +23,11 @@ public:
 	std::string Version();
 
 	//
+	void setForTracking(int b);
+
+	void setForDriver(int b);
+
+	//
 	void printTargetInfo(Target& target);
 
 	// Track
@@ -33,7 +38,7 @@ public:
 	int Track(int signature, Target& target);
 
 	//
-	int getBlocksForSignature(int signature, unsigned int max_blocks, std::list<Target>& targets);
+	int getBlocksForSignature(int signature, unsigned int max_blocks, Target* targets);
 
 private:
 
@@ -53,7 +58,8 @@ private:
     const int kTILT_DERIVATIVE_GAIN   = 700;
 
 	Block 	     m_blocks [kBLOCK_BUFFER_SIZE];
-	std::list<Target>		 m_targets;
+	Target       m_targets[kBLOCK_BUFFER_SIZE];
+	int          m_target_count;
 	int		     m_pixy_init_status;
 	cv::Mat      m_image;
 	uint8_t     *m_frame_buffer;
