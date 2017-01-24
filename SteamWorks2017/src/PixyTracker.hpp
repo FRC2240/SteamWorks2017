@@ -27,6 +27,8 @@ public:
 
 	void setForDriver(int b);
 
+	void clearTargets() { m_target_count = 0; }
+
 	//
 	void printTargetInfo(Target& target);
 

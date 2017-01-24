@@ -6,21 +6,37 @@
 
 class Robot: public IterativeRobot {
 private:
-	enum TrackingMode {
-		kNoTracking,
-		kGearTracking,
-		kBoilerTracking
-	} trackingMode = kNoTracking;
+	// Tunable parameters for target detection
+	const int kTrackingBrightness = 22;
+	const int kNormalBrightness   = 128;
+	const int kGearTargetWidth    = 20;
+	const int kGearTargetHeight   = 50;
+	const int kGearTargetArea = (kGearTargetWidth * kGearTargetHeight);
+
+	// Tunable parameters for driving
+	const double kSpinRateLimiter = 0.2;
+
+	// Tunable parameters for the PID Controllers
+	const double kP = 0.03;
+	const double kI = 0.00;
+	const double kD = 0.00;
+	const double kF = 0.00;
+
+	/* This tuning parameter indicates how close to "on target" the    */
+	/* PID Controller will attempt to get.                             */
+	const double kToleranceDegrees = 0.2;
+	const double kToleranceStrafe = 5.0;
 
 	enum AutoState {
 		kDoNothing,
-		kTurning,
+		kTurningToSpring,
 		kDrivingForward,
-		kDrivingBackward
+		kPlacingGear,
+		kDrivingBackward,
+		kTurningToBoiler,
+		kDrivingToLaunchPosition,
+		kLaunching
 	} autoState = kDoNothing;
-
-	const int kTrackingBrightness = 20;
-	const int kNormalBrightness = 128;
 
 	PixyTracker *m_pixy;
 	int m_signature = 1;
@@ -37,17 +53,7 @@ private:
 	PIDController *turnController;      // PID Controller
 	PIDController *strafeController;    // PID Controller
 
-	const double kP = 0.03;
-	const double kI = 0.00;
-	const double kD = 0.00;
-	const double kF = 0.00;
-
-	/* This tuning parameter indicates how close to "on target" the    */
-	/* PID Controller will attempt to get.                             */
-	const double kToleranceDegrees = 0.2;
-	const double kToleranceStrafe = 5.0;
-
-	//
+	// Output from the Turn (Angle) PID Controller
 	class TurnPIDOutput : public PIDOutput {
 	public:
 		double correction;
@@ -56,7 +62,7 @@ private:
 		}
 	} turnPIDOutput;
 
-	//
+	// Output from the Strafe PID Controller
 	class StrafePIDOutput : public PIDOutput {
 	public:
 		double correction;
@@ -65,7 +71,7 @@ private:
 		}
 	} strafePIDOutput;
 
-	//
+	// Data source for the Strafe PID Controller
 	class StrafePIDSource : public PIDSource {
 	public:
 		StrafePIDSource() : offset(0.0) {}
@@ -76,9 +82,9 @@ private:
 			if (count < 2) {
 				offset = 0.0;
 			} else {
-		        offset = (targets[0].block.x + targets[1].block.x)/2.0 - 160.0;
+				offset = (targets[0].block.x + targets[1].block.x)/2.0 - 160.0;
 			}
-	    }
+		}
 	private:
 		double offset;
 	} strafePIDSource;
@@ -97,14 +103,73 @@ private:
 	// Configure for tracking
 	void startTracking() {
 		// Reset brightness
-
+		m_pixy->setForTracking(kTrackingBrightness);
 	}
 
 	// Unconfigure tracking
 	void stopTracking() {
 		// Reset to a fixed pan/tilt position
-		// Reset brightness
 
+		// Reset brightness
+		m_pixy->setForDriver(kNormalBrightness);
+		m_pixy->clearTargets();
+	}
+
+	void autoTurningToSpring() {
+		// TODO
+		drive->MecanumDrive_Cartesian(0, 0, kSpinRateLimiter*turnPIDOutput.correction, ahrs->GetAngle());
+		if (turnPIDOutput.correction < kToleranceDegrees) {
+			autoState = kDrivingForward;
+		}
+	}
+
+	void autoDrivingForward() {
+		drive->MecanumDrive_Cartesian(0.2*strafePIDOutput.correction,
+				0.2,
+				kSpinRateLimiter*turnPIDOutput.correction,
+				ahrs->GetAngle());
+
+		// Targets from Pixy and calculate the offset from center
+		int count = m_pixy->getBlocksForSignature(m_signature, 2, m_gear_targets);
+		strafePIDSource.calcTargetOffset(m_gear_targets, count);
+
+		std::cout << "turn correction = " << turnPIDOutput.correction << " strafe correction = "
+				  << strafePIDOutput.correction << std::endl;
+
+		if (2 == count) {
+			if ((m_gear_targets[0].block.width > kGearTargetWidth)   &&
+				(m_gear_targets[0].block.height > kGearTargetHeight) &&
+				(m_gear_targets[1].block.width > kGearTargetWidth)   &&
+				(m_gear_targets[1].block.height > kGearTargetHeight) &&
+				(abs(m_gear_targets[0].block.y - m_gear_targets[1].block.y)) < 10) {
+				std::cout << "Stopped" << std::endl;
+				autoState = kDoNothing;
+			}
+		}
+	}
+
+	void autoPlacingGear() {
+		// TODO
+	}
+
+	void autoDrivingBackward() {
+		// TODO
+	}
+
+	void autoTurningToBoiler() {
+		// TODO
+	}
+
+	void autoDrivingToLaunchPosition() {
+		// TODO
+	}
+
+	void autoLaunching() {
+		// TODO
+	}
+
+	void autoDoNothing() {
+		drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle()); //stop
 	}
 
 	void RobotInit()
@@ -146,11 +211,10 @@ private:
 	}
 
 	void AutonomousInit() {
-		autoState = kDrivingForward;
+		startTracking();
 
-		// Initialize to zero
-		ahrs->ZeroYaw();
-		m_pixy->setForTracking(kTrackingBrightness);
+		autoState = kDrivingForward; // Initial state
+		ahrs->ZeroYaw();             // Initialize to zero
 
 		turnController->SetSetpoint(0.0);
 		turnController->Enable();
@@ -158,63 +222,57 @@ private:
 		strafeController->Enable();
 	}
 
-	void AutonomousDisabled() {
-		std::cout << "Autonomous Disabled\n";
-		m_pixy->setForDriver(kNormalBrightness);
+	void DisabledInit() {
+		stopTracking();
 		turnController->Disable();
 		strafeController->Disable();
 	}
 
 	void AutonomousPeriodic() {
-		/*if (kTurning == autoState) {
-			drive->MecanumDrive_Cartesian(0, 0, turnPIDOutput.turnOutput, ahrs->GetAngle());
-			if (turnPIDOutput.turnOutput < kToleranceDegrees) {
-				autoState = kDrivingForward;
-				strafeController->SetSetpoint(0.0);
-				strafeController->Enable();
-			}
-		}*/
+		//std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
+		//	lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;
 
-		std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
-			lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;
+		//std::cout << "Angle: " << ahrs->GetAngle() << "  Rate: " << ahrs->GetRate() << std::endl;
 
-		std::cout << "Angle: " << ahrs->GetAngle() << "  Rate: " << ahrs->GetRate() << std::endl;
-
-		if (kDrivingForward == autoState) {
-			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_gear_targets);
-			strafePIDSource.calcTargetOffset(m_gear_targets, count);
-
-			std::cout << "turn correction   = " << turnPIDOutput.correction << std::endl;
-			std::cout << "strafe correction = " << strafePIDOutput.correction << std::endl;
-
-			drive->MecanumDrive_Cartesian(strafePIDOutput.correction,
-					                      0.2,
-									      turnPIDOutput.correction,
-										  ahrs->GetAngle());
-			if (2 == count) {
-				if (m_gear_targets[0].block.width > 40) {
-					//stop
-					std::cout << "Stopped" << std::endl;
-					drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle());
-				}
-			}
+		switch (autoState) {
+		case kTurningToSpring:
+			autoTurningToSpring();
+			break;
+		case kDrivingForward:
+			autoDrivingForward();
+			break;
+		case kPlacingGear:
+			autoPlacingGear();
+			break;
+		case kDrivingBackward:
+			autoDrivingBackward();
+			break;
+		case kTurningToBoiler:
+			autoTurningToBoiler();
+			break;
+		case kDrivingToLaunchPosition:
+			autoDrivingToLaunchPosition();
+			break;
+		case kLaunching:
+			autoLaunching();
+			break;
+		default:
+		case kDoNothing:
+			autoDoNothing();
+			break;
 		}
-
-
 	}
 
 	void TeleopInit() {
-		trackingMode = kNoTracking;
 	}
 
 	void TeleopPeriodic() { // 0: leftX, 1: leftY, 2: left trigger, 3: right trigger, 4: rightX, 5: rightY
 		slider = 1.0; //(stick->GetRawAxis(4)+1)/2;
 
 		drive->MecanumDrive_Cartesian(
-				0.2, 0.0, 0.0,
-				//slider * deadBand(stick->GetRawAxis(0)),
-				//slider * deadBand(stick->GetRawAxis(1)),
-				//0.2 * (-1)*deadBand(stick->GetRawAxis(2)),
+				slider * deadBand(stick->GetRawAxis(0)),
+				slider * deadBand(stick->GetRawAxis(1)),
+				kSpinRateLimiter * (-1)*deadBand(stick->GetRawAxis(2)),
 				ahrs->GetAngle());
 
 		// DEBUG

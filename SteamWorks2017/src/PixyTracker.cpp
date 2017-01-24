@@ -33,14 +33,14 @@ void PixyTracker::setForTracking(int b) {
 	if (0 != response) {
 	    pixy_error(response);
 	}
-	response = pixy_cam_set_auto_white_balance(0);
+	/*response = pixy_cam_set_auto_white_balance(0);
 	if (0 != response) {
 		pixy_error(response);
 	}
 	response = pixy_cam_set_auto_exposure_compensation(0);
 	if (0 != response) {
 		pixy_error(response);
-	}
+	}*/
 }
 
 void PixyTracker::setForDriver(int b) {
@@ -49,14 +49,14 @@ void PixyTracker::setForDriver(int b) {
 	if (0 != response) {
 	    pixy_error(response);
 	}
-	response = pixy_cam_set_auto_white_balance(1);
+	/*response = pixy_cam_set_auto_white_balance(1);
 	if (0 != response) {
 		pixy_error(response);
 	}
 	response = pixy_cam_set_auto_exposure_compensation(1);
 	if (0 != response) {
 		pixy_error(response);
-	}
+	}*/
 }
 
 // startVideo
