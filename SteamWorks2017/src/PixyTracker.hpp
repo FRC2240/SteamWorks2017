@@ -13,6 +13,10 @@ public:
 		bool is_tracking;
 	};
 
+	// Pixy tilt positions
+	static const int kDefaultTilt = 500;
+	static const int kLevelTilt   = 700;
+
 	PixyTracker();
 	~PixyTracker();
 
@@ -23,9 +27,7 @@ public:
 	std::string Version();
 
 	//
-	void setForTracking(int b);
-
-	void setForDriver(int b);
+	void setTiltandBrightness(int brightness, int tiltPosition);
 
 	void clearTargets() { m_target_count = 0; }
 

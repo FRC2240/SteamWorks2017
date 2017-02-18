@@ -27,33 +27,24 @@ void PixyTracker::printTargetInfo(Target& target) {
 	printf("Pan: %4d, Tilt: %4d\n", target.pan, target.tilt);
 }
 
-void PixyTracker::setForTracking(int b) {
+void PixyTracker::setTiltandBrightness(int brightness, int tiltPosition) {
 	std::lock_guard<std::mutex> lock(m_cmd_mutex);
-	int response = pixy_cam_set_brightness(b);
+
+	int response = pixy_cam_set_brightness(brightness);
 	if (0 != response) {
-	    pixy_error(response);
+		pixy_error(response);
 	}
+
+	response = pixy_rcs_set_position(kPIXY_RCS_TILT_CHANNEL, tiltPosition);
+	if (0 != response) {
+		pixy_error(response);
+	}
+
 	/*response = pixy_cam_set_auto_white_balance(0);
 	if (0 != response) {
 		pixy_error(response);
 	}
 	response = pixy_cam_set_auto_exposure_compensation(0);
-	if (0 != response) {
-		pixy_error(response);
-	}*/
-}
-
-void PixyTracker::setForDriver(int b) {
-	std::lock_guard<std::mutex> lock(m_cmd_mutex);
-	int response = pixy_cam_set_brightness(b);
-	if (0 != response) {
-	    pixy_error(response);
-	}
-	/*response = pixy_cam_set_auto_white_balance(1);
-	if (0 != response) {
-		pixy_error(response);
-	}
-	response = pixy_cam_set_auto_exposure_compensation(1);
 	if (0 != response) {
 		pixy_error(response);
 	}*/
@@ -234,7 +225,6 @@ void PixyTracker::putFrame() {
 	uint16_t xwidth;
 	uint16_t ywidth;
 	uint32_t size;
-	//printf("get frame\n");
 
 	int return_value = pixy_command("cam_getFrame",  // String id for remote procedure
 			INT8(0x21),     // mode
