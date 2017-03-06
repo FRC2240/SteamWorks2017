@@ -10,12 +10,15 @@ private:
 
 
 	//Feeder and shooter motor
-
+	Servo *gearServo;
+	Servo *gearServo2;
 	TalonSRX *feederMotor;
 	CANTalon *shooter;
 	double speed;
 	int timer = 0;
 	TalonSRX *climber;
+	double driveAngle;
+	bool isDrivingStraight = false;
 
 
 	// Tunable parameters for target detection
@@ -32,12 +35,12 @@ private:
 	// Tunable parameters for the PID Controllers
 	const double kP = 0.03;
 	const double kI = 0.00;
-	const double kD = 0.00;
+	const double kD = 0.01;
 	const double kF = 0.00;
 
 	/* This tuning parameter indicates how close to "on target" the    */
 	/* PID Controller will attempt to get.                             */
-	const double kToleranceDegrees = 0.2;
+	const double kToleranceDegrees = 1.0;
 	const double kToleranceStrafe = 5.0;
 
 	enum AutoState {
@@ -168,25 +171,34 @@ private:
 
 	void autoDoNothing() {
 		drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle()); //stop
+
 	}
 
 	void RobotInit()
 	{
+		// gearServo is left, gearServo2 is right
+		gearServo = new Servo(5);
+		gearServo2 = new Servo(3);
 		climber = new TalonSRX(7);
 		stick        = new Joystick(0);
-		lFrontMotor  = new TalonSRX(0);
-		lBackMotor	 = new TalonSRX(8);
-		rFrontMotor  = new TalonSRX(1);
-		rBackMotor	 = new TalonSRX(9);
-		feederMotor = new TalonSRX(2);
+		lFrontMotor  = new TalonSRX(0); // 9
+		lBackMotor	 = new TalonSRX(8); // 1
+		rFrontMotor  = new TalonSRX(1); // 8
+		rBackMotor	 = new TalonSRX(9); // 0
+
+		feederMotor = new TalonSRX(6);
 		rFrontMotor->SetInverted(true);
 		rBackMotor->SetInverted(true);
 		shooter = new CANTalon(0);
 		shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
 		shooter -> Set(4000.0);
 		shooter -> SetSensorDirection(true);
-		shooter -> ConfigNominalOutputVoltage(+0., -0.);
-		shooter -> ConfigPeakOutputVoltage(+12., 0.);
+		shooter -> ConfigNominalOutputVoltage(+0., -0.
+
+		);
+
+		shooter
+		-> ConfigPeakOutputVoltage(+12., 0.);
 		shooter -> SetFeedbackDevice(CANTalon::CtreMagEncoder_Relative);
 		shooter->SetF(0.024);	// 775 Pro
 		shooter->SetP(0.035);	// 775 Pro
@@ -204,7 +216,7 @@ private:
 
 		turnController = new PIDController(kP, kI, kD, kF, ahrs, &turnPIDOutput);
 		turnController->SetInputRange(-180.0f,  180.0f);
-		turnController->SetOutputRange(-1.0, 1.0);
+		turnController->SetOutputRange(-0.25, 0.25);
 		turnController->SetAbsoluteTolerance(kToleranceDegrees);
 		turnController->SetContinuous(true);
 
@@ -222,18 +234,17 @@ private:
 	void AutonomousInit() {
 		m_pixy->setTiltandBrightness(kTrackingBrightness, PixyTracker::kLevelTilt);
 
-		autoState = kDrivingForward; // Initial state
+		autoState = kDoNothing; //kDrivingForward; // Initial state
 		ahrs->ZeroYaw();             // Initialize to zero
 
-		turnController->SetSetpoint(0.0);
-		turnController->Enable();
-		strafeController->SetSetpoint(0.0);
-		strafeController->Enable();
+		//turnController->SetSetpoint(0.0);
+		//turnController->Enable();
+		//strafeController->SetSetpoint(0.0);
+		//strafeController->Enable();
 	}
 
+
 	void DisabledInit() {
-		turnController->Disable();
-		strafeController->Disable();
 		m_pixy->setTiltandBrightness(kNormalBrightness, PixyTracker::kDefaultTilt);
 	}
 
@@ -278,47 +289,86 @@ private:
 
 	void TeleopPeriodic() { // 0: leftX, 1: leftY, 2: left trigger, 3: right trigger, 4: rightX, 5: rightY
 
-		if(stick -> GetRawButton(1)){
+		// Competition Robot Servos
+		/*if (stick -> GetRawButton(6)){
+			gearServo -> Set(.5);
+			gearServo2 -> Set(.3);
+
+		} else {
+			gearServo -> Set(.9);
+			gearServo2 -> Set(0);
+		}*/
+
+		// Practice Robot
+		if (stick -> GetRawButton(6)) {
+			gearServo -> Set(0.3);
+			gearServo2 -> Set(0.1);
+		} else {
+			gearServo -> Set(-0.2);
+			gearServo2 -> Set(0.5);
+		}
+
+		if (stick -> GetRawAxis(3)) {
 			++timer;
 			speed = shooter -> GetSpeed();
 			shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
 			shooter -> Set(4100.0);
 
 			std::cout << "Speed = " << speed << std::endl;
-			if(timer == 50){
+			if (timer == 50) {
 				timer = 0;
 				feederMotor ->Set(.3);
 			}
-		}
-		else {
+		} else {
 			timer = 0;
 			feederMotor -> Set(0.0);
 			shooter -> Set(0.0);
 		}
 
-		if(stick->GetRawButton(2)){
+		if (stick->GetRawAxis(2)){
 			climber -> Set(1.0);
-		}
-		else{
+		} else{
 			climber -> Set(0.0);
 		}
 
-		slider = 1.0; //(stick->GetRawAxis(4)+1)/2;
 
-		drive->MecanumDrive_Cartesian(
+		if (stick->GetRawButton(1)) {
+			if (!isDrivingStraight) {
+				driveAngle = ahrs->GetAngle();
+				isDrivingStraight = true;
+			}
+			turnController->SetSetpoint(driveAngle);
+			turnController->Enable();
+			std::cout << "GO straight " << driveAngle << " " << turnPIDOutput.correction << std::endl;
+
+			drive->MecanumDrive_Cartesian(
+					stick->GetX(),
+					stick->GetY(),
+					-turnPIDOutput.correction,
+					0.0);
+		} else {
+			isDrivingStraight = false;
+			turnController->Disable();
+
+		/* drive->MecanumDrive_Cartesian(
 				slider * deadBand(stick->GetRawAxis(0)),
 				slider * deadBand(stick->GetRawAxis(1)),
 				kSpinRateLimiter * (-1)*deadBand(stick->GetRawAxis(2)),
+				ahrs->GetAngle()); */
+		drive->MecanumDrive_Cartesian(
+				deadBand(stick->GetRawAxis(0)),
+				deadBand(stick->GetRawAxis(1)),
+				kSpinRateLimiter * (-1)*deadBand(stick->GetRawAxis(4)),
 				ahrs->GetAngle());
-
+		}
 		// DEBUG
-		std::cout << std::setprecision(3) << std::fixed;
+		//std::cout << std::setprecision(3) << std::fixed;
 		//std::cout << "Axis 0: " << stick->GetRawAxis(0) << "  Axis 1: " << stick->GetRawAxis(1) << "  Axis 4: " << stick->GetRawAxis(4) << std::endl;
 
-		std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
-				lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;
+		//std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
+		//		lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;
 
-		std::cout << "Angle: " << ahrs->GetAngle() << "  Rate: " << ahrs->GetRate() << std::endl;
+		//std::cout << "Angle: " << ahrs->GetAngle() << "  Rate: " << ahrs->GetRate() << std::endl;
 		//std::cout << "Angle: " << ahrs->GetAngle()
 		//		  << "  Yaw: " << ahrs->GetYaw()
 		//		  << "  Pitch: " << ahrs->GetPitch()
