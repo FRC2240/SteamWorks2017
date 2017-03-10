@@ -16,9 +16,12 @@ private:
 	CANTalon *shooter;
 	double speed;
 	int timer = 0;
+	int autoTimer = 0;
 	TalonSRX *climber;
 	double driveAngle;
 	bool isDrivingStraight = false;
+	bool wasButtonPushed = false;
+	bool isRobotCentric = false;
 
 
 	// Tunable parameters for target detection
@@ -33,7 +36,7 @@ private:
 	const double kAutoSpeed = 0.2;
 
 	// Tunable parameters for the PID Controllers
-	const double kP = 0.03;
+	const double kP = 0.003;
 	const double kI = 0.00;
 	const double kD = 0.01;
 	const double kF = 0.00;
@@ -125,35 +128,74 @@ private:
 	}
 
 	void autoDrivingForward() {
-		drive->MecanumDrive_Cartesian(kAutoSpeed*strafePIDOutput.correction,
-				kAutoSpeed,
-				kSpinRateLimiter*turnPIDOutput.correction,
-				ahrs->GetAngle());
+
+		autoTimer++;
+
+		if(autoTimer <= 500)
+		{
+			drive->MecanumDrive_Cartesian(0.0, 0.5, 0.0, ahrs->GetAngle());
+		}
+		else
+		{
+			autoState = kPlacingGear;
+			autoTimer = 0;
+		}
+
+		//drive->MecanumDrive_Cartesian(kAutoSpeed*strafePIDOutput.correction,
+		//		kAutoSpeed,
+		//		kSpinRateLimiter*turnPIDOutput.correction,
+		//		ahrs->GetAngle());
 
 		// Targets from Pixy and calculate the offset from center
-		int count = m_pixy->getBlocksForSignature(m_signature, 2, m_gear_targets);
-		strafePIDSource.calcTargetOffset(m_gear_targets, count);
+		//int count = m_pixy->getBlocksForSignature(m_signature, 2, m_gear_targets);
+		//strafePIDSource.calcTargetOffset(m_gear_targets, count);
 
 		//std::cout << "turn correction = " << turnPIDOutput.correction << " strafe correction = "
 		//		  << strafePIDOutput.correction << std::endl;
 
-		if (2 == count) {
-			if ((m_gear_targets[0].block.width > kGearTargetWidth)   &&
-					(m_gear_targets[0].block.height > kGearTargetHeight) &&
-					(m_gear_targets[1].block.width > kGearTargetWidth)   &&
-					(m_gear_targets[1].block.height > kGearTargetHeight) &&
-					(abs(m_gear_targets[0].block.y - m_gear_targets[1].block.y)) < 10) {
-				std::cout << "Stopped" << std::endl;
-				autoState = kDoNothing;
-			}
-		}
+		//if (2 == count) {
+		//	if ((m_gear_targets[0].block.width > kGearTargetWidth)   &&
+		//			(m_gear_targets[0].block.height > kGearTargetHeight) &&
+		//			(m_gear_targets[1].block.width > kGearTargetWidth)   &&
+		//			(m_gear_targets[1].block.height > kGearTargetHeight) &&
+		//			(abs(m_gear_targets[0].block.y - m_gear_targets[1].block.y)) < 10) {
+		//		std::cout << "Stopped" << std::endl;
+		//		autoState = kDoNothing;
+		//	}
+		//}
 	}
 
 	void autoPlacingGear() {
+		autoTimer++;
+		if(autoTimer < 150)
+		{
+			gearServo -> Set(0.3);
+			gearServo2 -> Set(0.1);
+		}
+		else
+		{
+			autoTimer = 0;
+			autoState = kDrivingBackward;
+		}
 		// TODO
 	}
 
 	void autoDrivingBackward() {
+		autoTimer++;
+		if(autoTimer < 250)
+		{
+			drive->MecanumDrive_Cartesian(0.0, -0.5, 0.0, ahrs->GetAngle());
+		}
+		else if(autoTimer < 275)
+		{
+			gearServo -> Set(-0.2);
+			gearServo2 -> Set(0.5);
+		}
+		else
+		{
+			autoTimer = 0;
+			autoState = kDoNothing;//kTurningToBoiler;
+		}
 		// TODO
 	}
 
@@ -215,7 +257,7 @@ private:
 		drive = new RobotDrive(lFrontMotor, lBackMotor, rFrontMotor, rBackMotor);
 
 		turnController = new PIDController(kP, kI, kD, kF, ahrs, &turnPIDOutput);
-		turnController->SetInputRange(-180.0f,  180.0f);
+		turnController->SetInputRange(-180.0, 180.0);
 		turnController->SetOutputRange(-0.25, 0.25);
 		turnController->SetAbsoluteTolerance(kToleranceDegrees);
 		turnController->SetContinuous(true);
@@ -234,7 +276,7 @@ private:
 	void AutonomousInit() {
 		m_pixy->setTiltandBrightness(kTrackingBrightness, PixyTracker::kLevelTilt);
 
-		autoState = kDoNothing; //kDrivingForward; // Initial state
+		autoState = kDrivingForward; //kDrivingForward; // Initial state
 		ahrs->ZeroYaw();             // Initialize to zero
 
 		//turnController->SetSetpoint(0.0);
@@ -292,6 +334,7 @@ private:
 		// Competition Robot Servos
 		/*if (stick -> GetRawButton(6)){
 			gearServo -> Set(.5);
+
 			gearServo2 -> Set(.3);
 
 		} else {
@@ -331,23 +374,38 @@ private:
 			climber -> Set(0.0);
 		}
 
-
+		// Check for drive-mode toggle
 		if (stick->GetRawButton(1)) {
-			if (!isDrivingStraight) {
-				driveAngle = ahrs->GetAngle();
-				isDrivingStraight = true;
+			if (!wasButtonPushed) {
+				isRobotCentric = !isRobotCentric;
+
+				if (isRobotCentric) {
+					driveAngle = ahrs->GetAngle();
+					double rotations = floor(abs(driveAngle)/360.0);
+					if (driveAngle < 0.0) {
+						driveAngle+= rotations*360.0;
+					} else {
+						driveAngle-= rotations*360.0;
+					}
+
+					std::cout << "set drive angle\n";
+				}
 			}
+			wasButtonPushed = true;
+		} else {
+			wasButtonPushed = false;
+		}
+		if (isRobotCentric) {
+			std::cout << "Robot Centric: " << ahrs->GetAngle() << " " << driveAngle << " " << turnPIDOutput.correction << std::endl;
 			turnController->SetSetpoint(driveAngle);
 			turnController->Enable();
-			std::cout << "GO straight " << driveAngle << " " << turnPIDOutput.correction << std::endl;
 
 			drive->MecanumDrive_Cartesian(
-					stick->GetX(),
-					stick->GetY(),
+					deadBand(stick->GetRawAxis(4)),
+					deadBand(stick->GetRawAxis(1)),
 					-turnPIDOutput.correction,
 					0.0);
 		} else {
-			isDrivingStraight = false;
 			turnController->Disable();
 
 		/* drive->MecanumDrive_Cartesian(
