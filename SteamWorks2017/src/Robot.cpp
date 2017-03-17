@@ -141,7 +141,6 @@ private:
 
 		autoTimer++;
 
-
 		std::cout << "auto timer:" << autoTimer << std::endl;
 
 		if(autoTimer <= 125)
