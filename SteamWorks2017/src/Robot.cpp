@@ -4,6 +4,9 @@
 #include "PixyTracker.hpp"
 #include "AHRS.h"
 #include <CANTalon.h>
+//#include <LiveWindow/LiveWindow.h>
+//#include <SmartDashboard/SendableChooser.h>
+#include <SmartDashboard/SmartDashboard.h>
 
 class Robot: public IterativeRobot {
 private:
@@ -23,6 +26,13 @@ private:
 	bool wasButtonPushed = false;
 	bool isRobotCentric = false;
 
+	//frc::SendableChooser<std::string> chooser;
+	const std::string autoNameDefault = "left";
+	//const std::string autoNameCustom = "RightBoiler";
+	std::string autoSelected;
+	//frc::LiveWindow* lw = LiveWindow::GetInstance();
+
+
 
 	// Tunable parameters for target detection
 	const int kTrackingBrightness = 22;
@@ -32,11 +42,11 @@ private:
 	const int kGearTargetArea = (kGearTargetWidth * kGearTargetHeight);
 
 	// Tunable parameters for driving
-	const double kSpinRateLimiter = 0.2;
+	const double kSpinRateLimiter = 0.3;
 	const double kAutoSpeed = 0.2;
 
 	// Tunable parameters for the PID Controllers
-	const double kP = 0.003;
+	const double kP = 0.01;
 	const double kI = 0.00;
 	const double kD = 0.01;
 	const double kF = 0.00;
@@ -131,12 +141,18 @@ private:
 
 		autoTimer++;
 
-		if(autoTimer <= 500)
+
+		std::cout << "auto timer:" << autoTimer << std::endl;
+
+		if(autoTimer <= 125)
 		{
-			drive->MecanumDrive_Cartesian(0.0, 0.5, 0.0, ahrs->GetAngle());
+			turnController->SetSetpoint(0.0);
+			turnController->Enable();
+			drive->MecanumDrive_Cartesian(0.0, -0.4, -turnPIDOutput.correction, 0.0);
 		}
 		else
 		{
+			drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, 0.0);
 			autoState = kPlacingGear;
 			autoTimer = 0;
 		}
@@ -167,10 +183,10 @@ private:
 
 	void autoPlacingGear() {
 		autoTimer++;
-		if(autoTimer < 150)
+		if(autoTimer < 125)
 		{
-			gearServo -> Set(0.3);
-			gearServo2 -> Set(0.1);
+			gearServo -> Set(0.5);
+			gearServo2 -> Set(-0.1);
 		}
 		else
 		{
@@ -182,25 +198,45 @@ private:
 
 	void autoDrivingBackward() {
 		autoTimer++;
-		if(autoTimer < 250)
+		if(autoTimer < 70)
 		{
-			drive->MecanumDrive_Cartesian(0.0, -0.5, 0.0, ahrs->GetAngle());
+			turnController->SetSetpoint(0.0);
+			turnController->Enable();
+			drive->MecanumDrive_Cartesian(0.0, 0.4, -turnPIDOutput.correction, 0.0);
 		}
-		else if(autoTimer < 275)
+		else if(autoTimer < 125)
 		{
-			gearServo -> Set(-0.2);
+			drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, 0.0);
+			gearServo -> Set(-0.5);
 			gearServo2 -> Set(0.5);
 		}
 		else
 		{
 			autoTimer = 0;
-			autoState = kDoNothing;//kTurningToBoiler;
+			autoState = kTurningToBoiler;//kTurningToBoiler;
 		}
 		// TODO
 	}
 
 	void autoTurningToBoiler() {
-		// TODO
+		autoTimer++;
+		if(autoTimer < 100 && autoSelected == "right")
+		{
+			turnController->SetSetpoint(90.0);
+			turnController->Enable();
+			drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
+		}
+		else if(autoTimer < 100 && autoSelected == "left")
+		{
+			turnController->SetSetpoint(-90.0);
+			turnController->Enable();
+			drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
+		}
+		else
+		{
+			autoTimer = 0;
+			autoState = kDoNothing;
+		}
 	}
 
 	void autoDrivingToLaunchPosition() {
@@ -218,9 +254,13 @@ private:
 
 	void RobotInit()
 	{
+		//chooser.AddDefault(autoNameDefault, autoNameDefault);
+		//chooser.AddObject(autoNameCustom, autoNameCustom);
+		//frc::SmartDashboard::PutData("Auto Modes", &chooser);
+
 		// gearServo is left, gearServo2 is right
-		gearServo = new Servo(5);
-		gearServo2 = new Servo(3);
+		gearServo = new Servo(5); //right servo on practice bot
+		gearServo2 = new Servo(3); //left is 3 on practice bot
 		climber = new TalonSRX(7);
 		stick        = new Joystick(0);
 		lFrontMotor  = new TalonSRX(0); // 9
@@ -255,10 +295,11 @@ private:
 		}
 
 		drive = new RobotDrive(lFrontMotor, lBackMotor, rFrontMotor, rBackMotor);
+		drive->SetSafetyEnabled(false);
 
 		turnController = new PIDController(kP, kI, kD, kF, ahrs, &turnPIDOutput);
 		turnController->SetInputRange(-180.0, 180.0);
-		turnController->SetOutputRange(-0.25, 0.25);
+		turnController->SetOutputRange(-1.0, 1.0);
 		turnController->SetAbsoluteTolerance(kToleranceDegrees);
 		turnController->SetContinuous(true);
 
@@ -275,9 +316,13 @@ private:
 
 	void AutonomousInit() {
 		m_pixy->setTiltandBrightness(kTrackingBrightness, PixyTracker::kLevelTilt);
-
-		autoState = kDrivingForward; //kDrivingForward; // Initial state
+        shooter -> Set(0.0);
+		autoState = kDrivingForward; // Initial state
 		ahrs->ZeroYaw();             // Initialize to zero
+
+		//autoSelected = chooser.GetSelected();
+		autoSelected = SmartDashboard::GetString("Auto Selector", autoNameDefault);
+		std::cout << "Auto selected: " << autoSelected << std::endl;
 
 		//turnController->SetSetpoint(0.0);
 		//turnController->Enable();
@@ -331,6 +376,9 @@ private:
 
 	void TeleopPeriodic() { // 0: leftX, 1: leftY, 2: left trigger, 3: right trigger, 4: rightX, 5: rightY
 
+		//SmartDashboard::PutNumber("Gyro Angle", ahrs->GetAngle());
+
+
 		// Competition Robot Servos
 		/*if (stick -> GetRawButton(6)){
 			gearServo -> Set(.5);
@@ -343,12 +391,12 @@ private:
 		}*/
 
 		// Practice Robot
-		if (stick -> GetRawButton(6)) {
-			gearServo -> Set(0.3);
-			gearServo2 -> Set(0.1);
+		if (!stick -> GetRawButton(6)) { //gearservo is right, gearservo2 is left
+			gearServo -> Set(-0.5); //0.3
+			gearServo2 -> Set(0.5); //0.1
 		} else {
-			gearServo -> Set(-0.2);
-			gearServo2 -> Set(0.5);
+			gearServo -> Set(0.5); //-0.2
+			gearServo2 -> Set(-0.1); //0.5
 		}
 
 		if (stick -> GetRawAxis(3)) {
@@ -375,6 +423,7 @@ private:
 		}
 
 		// Check for drive-mode toggle
+		/*
 		if (stick->GetRawButton(1)) {
 			if (!wasButtonPushed) {
 				isRobotCentric = !isRobotCentric;
@@ -387,24 +436,61 @@ private:
 					} else {
 						driveAngle-= rotations*360.0;
 					}
+					if (driveAngle > 180.0) {
+						driveAngle-=360.0;
+					} else if (driveAngle < -180.0) {
+						driveAngle+=360.0;
+					}
 
-					std::cout << "set drive angle\n";
+				std::cout << "set drive angle\n";
 				}
 			}
+
 			wasButtonPushed = true;
 		} else {
 			wasButtonPushed = false;
+		}*/
+
+		if (stick->GetRawButton(1) || stick->GetRawButton(2)) {
+			if (!isRobotCentric) {
+
+				isRobotCentric = true;
+
+				driveAngle = ahrs->GetAngle();
+				double rotations = floor(abs(driveAngle)/360.0);
+				if (driveAngle < 0.0) {
+					driveAngle+= rotations*360.0;
+				} else {
+					driveAngle-= rotations*360.0;
+				}
+				if (driveAngle > 180.0) {
+					driveAngle-=360.0;
+				} else if (driveAngle < -180.0) {
+					driveAngle+=360.0;
+				}
+			}
+		} else {
+			isRobotCentric = false;
 		}
+
 		if (isRobotCentric) {
 			std::cout << "Robot Centric: " << ahrs->GetAngle() << " " << driveAngle << " " << turnPIDOutput.correction << std::endl;
 			turnController->SetSetpoint(driveAngle);
 			turnController->Enable();
 
+			if (stick->GetRawButton(2)) {
+				drive->MecanumDrive_Cartesian(
+								deadBand(0.0),
+								deadBand(stick->GetRawAxis(1)),
+								-turnPIDOutput.correction,
+								0.0);
+			} else {
 			drive->MecanumDrive_Cartesian(
-					deadBand(stick->GetRawAxis(4)),
+					deadBand(stick->GetRawAxis(0)),
 					deadBand(stick->GetRawAxis(1)),
 					-turnPIDOutput.correction,
 					0.0);
+			}
 		} else {
 			turnController->Disable();
 
