@@ -13,8 +13,8 @@ private:
 
 
 	//Feeder and shooter motor
-	Servo *gearServo;
-	Servo *gearServo2;
+	Servo *gearServoRight;
+	Servo *gearServoLeft;
 	TalonSRX *feederMotor;
 	CANTalon *shooter;
 	double speed;
@@ -22,16 +22,19 @@ private:
 	int autoTimer = 0;
 	TalonSRX *climber;
 	double driveAngle;
-	bool isDrivingStraight = false;
-	bool wasButtonPushed = false;
+	//bool isDrivingStraight = false;
+	//bool wasButtonPushed = false;
 	bool isRobotCentric = false;
+	double autoTurnToBoilerAngle = 0.0;
 
-	//frc::SendableChooser<std::string> chooser;
 	const std::string autoNameDefault = "left";
-	//const std::string autoNameCustom = "RightBoiler";
 	std::string autoSelected;
-	//frc::LiveWindow* lw = LiveWindow::GetInstance();
 
+	// Servo constants
+	const double kServoRightOpen   =  0.5;
+	const double kServoRightClosed = -0.5;
+	const double kServoLeftOpen    = -0.1;
+	const double kServoLeftClosed  =  0.5;
 
 
 	// Tunable parameters for target detection
@@ -43,7 +46,11 @@ private:
 
 	// Tunable parameters for driving
 	const double kSpinRateLimiter = 0.3;
-	const double kAutoSpeed = 0.2;
+
+	// Tunable parameters for autonomous
+	const double kAutoSpeed = 0.5;
+
+
 
 	// Tunable parameters for the PID Controllers
 	const double kP = 0.01;
@@ -69,7 +76,7 @@ private:
 
 	PixyTracker *m_pixy;
 	int m_signature = 1;
-	PixyTracker::Target m_gear_targets[2];
+	PixyTracker::Target m_targets[2];
 
 	RobotDrive *drive;
 	TalonSRX   *lFrontMotor;
@@ -143,11 +150,11 @@ private:
 
 		std::cout << "auto timer:" << autoTimer << std::endl;
 
-		if(autoTimer <= 125)
+		if(autoTimer <= 175)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, -0.4, -turnPIDOutput.correction, 0.0);
+			drive->MecanumDrive_Cartesian(0.0, -kAutoSpeed, -turnPIDOutput.correction, ahrs->GetAngle());
 		}
 		else
 		{
@@ -182,10 +189,10 @@ private:
 
 	void autoPlacingGear() {
 		autoTimer++;
-		if(autoTimer < 125)
+		if (autoTimer < 125)
 		{
-			gearServo -> Set(0.5);
-			gearServo2 -> Set(-0.1);
+			gearServoRight -> Set(0.5);
+			gearServoLeft -> Set(-0.1);
 		}
 		else
 		{
@@ -197,58 +204,121 @@ private:
 
 	void autoDrivingBackward() {
 		autoTimer++;
-		if(autoTimer < 70)
+		if (autoTimer < 125)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, 0.4, -turnPIDOutput.correction, 0.0);
+			drive->MecanumDrive_Cartesian(0.0, kAutoSpeed, -turnPIDOutput.correction, 0.0);
 		}
-		else if(autoTimer < 125)
+		else if(autoTimer < 100)
 		{
 			drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, 0.0);
-			gearServo -> Set(-0.5);
-			gearServo2 -> Set(0.5);
+			gearServoRight -> Set(-0.5);
+			gearServoLeft -> Set(0.5);
 		}
 		else
 		{
 			autoTimer = 0;
-			autoState = kTurningToBoiler;//kTurningToBoiler;
+			autoState = kTurningToBoiler;
 		}
-		// TODO
 	}
 
 	void autoTurningToBoiler() {
 		autoTimer++;
-		if(autoTimer < 100 && autoSelected == "right")
+		if (autoTimer < 100 && autoSelected == "right")
 		{
-			turnController->SetSetpoint(90.0);
+			turnController->SetSetpoint(autoTurnToBoilerAngle);
 			turnController->Enable();
 			drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
 		}
-		else if(autoTimer < 100 && autoSelected == "left")
+		else if (autoTimer < 2000)
 		{
-			turnController->SetSetpoint(-90.0);
-			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
+			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_targets);
+			int avg=0;
+			for (int i=0; i<count; i++) {
+				std::cout << i << "  " << m_targets[i].block.x << "  " << m_targets[i].block.y << std::endl;
+				avg+= m_targets[i].block.x;
+			}
+			avg = avg/count;
+
+			std::cout << "avg = " << avg << std::endl;;
+			if (avg < 155) {
+				//drive->MecanumDrive_Cartesian(0.0, 0.0, 0.25*diff, ahrs->GetAngle());
+				autoTurnToBoilerAngle-=1.0;
+				turnController->SetSetpoint(autoTurnToBoilerAngle);
+				turnController->Enable();
+				drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
+			} else if (avg > 165) {
+				//drive->MecanumDrive_Cartesian(0.0, 0.0, -0.25*diff, ahrs->GetAngle());
+				autoTurnToBoilerAngle+=1.0;
+				turnController->SetSetpoint(autoTurnToBoilerAngle);
+				turnController->Enable();
+				drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
+			} else {
+				drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle());
+				autoTimer = 0;
+				autoState = kDrivingToLaunchPosition;
+			}
 		}
 		else
 		{
+			// No target found, how sad!
 			autoTimer = 0;
 			autoState = kDoNothing;
 		}
 	}
 
 	void autoDrivingToLaunchPosition() {
-		// TODO
+		autoTimer++;
+
+		if (autoTimer < 200)
+		{
+			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_targets);
+			std::cout << "target count: count:" << count << std::endl;
+
+			turnController->SetSetpoint(autoTurnToBoilerAngle);
+			turnController->Enable();
+			drive->MecanumDrive_Cartesian(0.0, -kAutoSpeed, -turnPIDOutput.correction, ahrs->GetAngle());
+
+			int avg=0;
+			for (int i=0; i<count; i++) {
+				std::cout << i << "  " << m_targets[i].block.width << "  " << m_targets[i].block.width << std::endl;
+				avg+= m_targets[i].block.width;
+			}
+			avg = avg/count;
+
+			if (avg > 30) {
+				autoTimer = 0;
+				autoState = kLaunching;
+			}
+		} else {
+			// Lost target?
+			autoTimer = 0;
+			autoState = kDoNothing;
+		}
 	}
 
 	void autoLaunching() {
-		// TODO
+		++autoTimer;
+
+		if (autoTimer < 1000) {
+			shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
+			shooter -> Set(4100.0);
+
+			if (autoTimer == 50) {
+				autoTimer = 0;
+				feederMotor ->Set(0.3);
+			}
+		} else {
+			feederMotor -> Set(0.0);
+			shooter -> Set(0.0);
+			autoTimer = 0;
+			autoState = kDoNothing;
+		}
 	}
 
 	void autoDoNothing() {
 		drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle()); //stop
-
 	}
 
 	void RobotInit()
@@ -258,8 +328,8 @@ private:
 		//frc::SmartDashboard::PutData("Auto Modes", &chooser);
 
 		// gearServo is left, gearServo2 is right
-		gearServo = new Servo(5); //right servo on practice bot
-		gearServo2 = new Servo(3); //left is 3 on practice bot
+		gearServoRight = new Servo(5); //right servo on practice bot
+		gearServoLeft = new Servo(3); //left is 3 on practice bot
 		climber = new TalonSRX(7);
 		stick        = new Joystick(0);
 		lFrontMotor  = new TalonSRX(0); // 9
@@ -314,14 +384,19 @@ private:
 	}
 
 	void AutonomousInit() {
-		m_pixy->setTiltandBrightness(kTrackingBrightness, PixyTracker::kLevelTilt);
+		m_pixy->setTiltandBrightness(kTrackingBrightness, 0);
         shooter -> Set(0.0);
 		autoState = kDrivingForward; // Initial state
 		ahrs->ZeroYaw();             // Initialize to zero
 
-		//autoSelected = chooser.GetSelected();
 		autoSelected = SmartDashboard::GetString("Auto Selector", autoNameDefault);
 		std::cout << "Auto selected: " << autoSelected << std::endl;
+
+		if (autoSelected == "right") {
+			autoTurnToBoilerAngle = 90.0;
+		} else {
+			autoTurnToBoilerAngle = -90.0;
+		}
 
 		//turnController->SetSetpoint(0.0);
 		//turnController->Enable();
@@ -331,7 +406,9 @@ private:
 
 
 	void DisabledInit() {
-		m_pixy->setTiltandBrightness(kNormalBrightness, PixyTracker::kDefaultTilt);
+		drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, 0.0);
+		shooter -> Set(0.0);
+		feederMotor ->Set(0.0);
 	}
 
 	void AutonomousPeriodic() {
@@ -370,7 +447,7 @@ private:
 	}
 
 	void TeleopInit() {
-		// TODO
+		m_pixy->setTiltandBrightness(kNormalBrightness, 1);
 	}
 
 	void TeleopPeriodic() { // 0: leftX, 1: leftY, 2: left trigger, 3: right trigger, 4: rightX, 5: rightY
@@ -380,22 +457,23 @@ private:
 
 		// Competition Robot Servos
 		/*if (stick -> GetRawButton(6)){
-			gearServo -> Set(.5);
+			gearServoRight -> Set(.5);
 
-			gearServo2 -> Set(.3);
+			gearServoLeft -> Set(.3);
 
 		} else {
-			gearServo -> Set(.9);
-			gearServo2 -> Set(0);
+			gearServoRight -> Set(.9);
+			gearServoLeft -> Set(0);
 		}*/
 
 		// Practice Robot
-		if (!stick -> GetRawButton(6)) { //gearservo is right, gearservo2 is left
-			gearServo -> Set(-0.5); //0.3
-			gearServo2 -> Set(0.5); //0.1
+		if (stick -> GetRawButton(6)) { //gearservo is right, gearservo2 is left
+			gearServoRight -> Set(kServoRightOpen);
+			gearServoLeft -> Set(kServoLeftOpen);
+
 		} else {
-			gearServo -> Set(0.5); //-0.2
-			gearServo2 -> Set(-0.1); //0.5
+			gearServoRight -> Set(kServoRightClosed);
+			gearServoLeft -> Set(kServoLeftClosed);
 		}
 
 		if (stick -> GetRawAxis(3)) {
@@ -482,13 +560,13 @@ private:
 								deadBand(0.0),
 								deadBand(stick->GetRawAxis(1)),
 								-turnPIDOutput.correction,
-								0.0);
+								ahrs->GetAngle());
 			} else {
 			drive->MecanumDrive_Cartesian(
 					deadBand(stick->GetRawAxis(0)),
 					deadBand(stick->GetRawAxis(1)),
 					-turnPIDOutput.correction,
-					0.0);
+					ahrs->GetAngle());
 			}
 		} else {
 			turnController->Disable();

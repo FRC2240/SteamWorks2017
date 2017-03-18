@@ -35,19 +35,19 @@ void PixyTracker::setTiltandBrightness(int brightness, int tiltPosition) {
 		pixy_error(response);
 	}
 
-	response = pixy_rcs_set_position(kPIXY_RCS_TILT_CHANNEL, tiltPosition);
-	if (0 != response) {
-		pixy_error(response);
-	}
+	//response = pixy_rcs_set_position(kPIXY_RCS_TILT_CHANNEL, tiltPosition);
+	//if (0 != response) {
+	//	pixy_error(response);
+	//}
 
-	/*response = pixy_cam_set_auto_white_balance(0);
+	response = pixy_cam_set_auto_white_balance(tiltPosition);
 	if (0 != response) {
 		pixy_error(response);
 	}
-	response = pixy_cam_set_auto_exposure_compensation(0);
+	response = pixy_cam_set_auto_exposure_compensation(tiltPosition);
 	if (0 != response) {
 		pixy_error(response);
-	}*/
+	}
 }
 
 // startVideo
