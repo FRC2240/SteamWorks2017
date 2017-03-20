@@ -4,13 +4,10 @@
 #include "PixyTracker.hpp"
 #include "AHRS.h"
 #include <CANTalon.h>
-//#include <LiveWindow/LiveWindow.h>
-//#include <SmartDashboard/SendableChooser.h>
 #include <SmartDashboard/SmartDashboard.h>
 
 class Robot: public IterativeRobot {
 private:
-
 
 	//Feeder and shooter motor
 	Servo *gearServoRight;
@@ -22,8 +19,6 @@ private:
 	int autoTimer = 0;
 	TalonSRX *climber;
 	double driveAngle;
-	//bool isDrivingStraight = false;
-	//bool wasButtonPushed = false;
 	bool isRobotCentric = false;
 	double autoTurnToBoilerAngle = 0.0;
 
@@ -65,12 +60,10 @@ private:
 
 	enum AutoState {
 		kDoNothing,
-		kTurningToSpring,
 		kDrivingForward,
 		kPlacingGear,
 		kDrivingBackward,
 		kTurningToBoiler,
-		kDrivingToLaunchPosition,
 		kLaunching
 	} autoState = kDoNothing;
 
@@ -136,25 +129,14 @@ private:
 		}
 	}
 
-	void autoTurningToSpring() {
-		// TODO
-		drive->MecanumDrive_Cartesian(0, 0, kSpinRateLimiter*turnPIDOutput.correction, ahrs->GetAngle());
-		if (turnPIDOutput.correction < kToleranceDegrees) {
-			autoState = kDrivingForward;
-		}
-	}
-
 	void autoDrivingForward() {
-
 		autoTimer++;
 
-		std::cout << "auto timer:" << autoTimer << std::endl;
-
-		if(autoTimer <= 175)
+		if(autoTimer <= 105)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, -kAutoSpeed, -turnPIDOutput.correction, ahrs->GetAngle());
+			drive->MecanumDrive_Cartesian(0.0, -0.6, -turnPIDOutput.correction, ahrs->GetAngle());
 		}
 		else
 		{
@@ -162,62 +144,28 @@ private:
 			autoState = kPlacingGear;
 			autoTimer = 0;
 		}
-
-		//drive->MecanumDrive_Cartesian(kAutoSpeed*strafePIDOutput.correction,
-		//		kAutoSpeed,
-		//		kSpinRateLimiter*turnPIDOutput.correction,
-		//		ahrs->GetAngle());
-
-		// Targets from Pixy and calculate the offset from center
-		//int count = m_pixy->getBlocksForSignature(m_signature, 2, m_gear_targets);
-		//strafePIDSource.calcTargetOffset(m_gear_targets, count);
-
-		//std::cout << "turn correction = " << turnPIDOutput.correction << " strafe correction = "
-		//		  << strafePIDOutput.correction << std::endl;
-
-		//if (2 == count) {
-		//	if ((m_gear_targets[0].block.width > kGearTargetWidth)   &&
-		//			(m_gear_targets[0].block.height > kGearTargetHeight) &&
-		//			(m_gear_targets[1].block.width > kGearTargetWidth)   &&
-		//			(m_gear_targets[1].block.height > kGearTargetHeight) &&
-		//			(abs(m_gear_targets[0].block.y - m_gear_targets[1].block.y)) < 10) {
-		//		std::cout << "Stopped" << std::endl;
-		//		autoState = kDoNothing;
-		//	}
-		//}
 	}
 
 	void autoPlacingGear() {
 		autoTimer++;
-		if (autoTimer < 125)
+		if (autoTimer < 30)
 		{
 			gearServoRight -> Set(0.5);
 			gearServoLeft -> Set(-0.1);
-		}
-		else
-		{
+		} else {
 			autoTimer = 0;
 			autoState = kDrivingBackward;
 		}
-		// TODO
 	}
 
 	void autoDrivingBackward() {
 		autoTimer++;
-		if (autoTimer < 125)
+		if (autoTimer < 60)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, kAutoSpeed, -turnPIDOutput.correction, 0.0);
-		}
-		else if(autoTimer < 100)
-		{
-			drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, 0.0);
-			gearServoRight -> Set(-0.5);
-			gearServoLeft -> Set(0.5);
-		}
-		else
-		{
+			drive->MecanumDrive_Cartesian(0.0, 0.6, -turnPIDOutput.correction, 0.0);
+		} else {
 			autoTimer = 0;
 			autoState = kTurningToBoiler;
 		}
@@ -225,74 +173,44 @@ private:
 
 	void autoTurningToBoiler() {
 		autoTimer++;
-		if (autoTimer < 100 && autoSelected == "right")
+
+		if (autoTimer < 100)
 		{
 			turnController->SetSetpoint(autoTurnToBoilerAngle);
 			turnController->Enable();
 			drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
 		}
-		else if (autoTimer < 2000)
+		else if (autoTimer < 600)
 		{
 			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_targets);
-			int avg=0;
+			int pos = 0;
+			int width = 0;
 			for (int i=0; i<count; i++) {
 				std::cout << i << "  " << m_targets[i].block.x << "  " << m_targets[i].block.y << std::endl;
-				avg+= m_targets[i].block.x;
+				pos+= m_targets[i].block.x;
+				width+= m_targets[i].block.width;
+				//std::cout << i << "  WIDTH" << m_targets[i].block.width << "  " << m_targets[i].block.width << std::endl;
 			}
-			avg = avg/count;
 
-			std::cout << "avg = " << avg << std::endl;;
-			if (avg < 155) {
-				//drive->MecanumDrive_Cartesian(0.0, 0.0, 0.25*diff, ahrs->GetAngle());
-				autoTurnToBoilerAngle-=1.0;
-				turnController->SetSetpoint(autoTurnToBoilerAngle);
-				turnController->Enable();
-				drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
-			} else if (avg > 165) {
-				//drive->MecanumDrive_Cartesian(0.0, 0.0, -0.25*diff, ahrs->GetAngle());
-				autoTurnToBoilerAngle+=1.0;
-				turnController->SetSetpoint(autoTurnToBoilerAngle);
-				turnController->Enable();
-				drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction * 0.5, ahrs->GetAngle());
-			} else {
-				drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, ahrs->GetAngle());
-				autoTimer = 0;
-				autoState = kDrivingToLaunchPosition;
+			double correction = 0.0;
+			if (count) {
+				pos = pos/count;
+				width = width/count;
+				//std::cout << "angle to tgt: " << autoTurnToBoilerAngle << "  " << ahrs->GetAngle() << std::endl;
+				correction = (pos-160) * 0.233;
 			}
-		}
-		else
-		{
-			// No target found, how sad!
-			autoTimer = 0;
-			autoState = kDoNothing;
-		}
-	}
 
-	void autoDrivingToLaunchPosition() {
-		autoTimer++;
-
-		if (autoTimer < 200)
-		{
-			int count = m_pixy->getBlocksForSignature(m_signature, 2, m_targets);
-			std::cout << "target count: count:" << count << std::endl;
-
+			autoTurnToBoilerAngle = ahrs->GetAngle() + correction;
 			turnController->SetSetpoint(autoTurnToBoilerAngle);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, -kAutoSpeed, -turnPIDOutput.correction, ahrs->GetAngle());
+			drive->MecanumDrive_Cartesian(0.15, -0.5, -turnPIDOutput.correction, 0.0);
 
-			int avg=0;
-			for (int i=0; i<count; i++) {
-				std::cout << i << "  " << m_targets[i].block.width << "  " << m_targets[i].block.width << std::endl;
-				avg+= m_targets[i].block.width;
-			}
-			avg = avg/count;
-
-			if (avg > 30) {
+			if (width > 28) {
 				autoTimer = 0;
 				autoState = kLaunching;
 			}
 		} else {
-			// Lost target?
+			// No target found, how sad!
 			autoTimer = 0;
 			autoState = kDoNothing;
 		}
@@ -301,12 +219,33 @@ private:
 	void autoLaunching() {
 		++autoTimer;
 
-		if (autoTimer < 1000) {
-			shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
-			shooter -> Set(4100.0);
+		int count = m_pixy->getBlocksForSignature(m_signature, 2, m_targets);
+		int pos = 0;
+		int width = 0;
+		for (int i=0; i<count; i++) {
+			pos+= m_targets[i].block.x;
+			width+= m_targets[i].block.width;
+			//std::cout << i << "  WIDTH" << m_targets[i].block.width << "  " << m_targets[i].block.width << std::endl;
+		}
 
-			if (autoTimer == 50) {
-				autoTimer = 0;
+		double correction = 0.0;
+		if (count) {
+			pos = pos/count;
+			width = width/count;
+			//std::cout << "angle to tgt: " << autoTurnToBoilerAngle << "  " << ahrs->GetAngle() << std::endl;
+			correction = (pos-160) * 0.233;
+		}
+
+		autoTurnToBoilerAngle = ahrs->GetAngle() + correction;
+		turnController->SetSetpoint(autoTurnToBoilerAngle);
+		turnController->Enable();
+		drive->MecanumDrive_Cartesian(0.0, -0.0, -turnPIDOutput.correction, 0.0);
+
+		if (autoTimer < 700) {
+			//shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
+			//shooter -> Set(4100.0);
+
+			if (autoTimer > 50) {
 				feederMotor ->Set(0.3);
 			}
 		} else {
@@ -323,11 +262,6 @@ private:
 
 	void RobotInit()
 	{
-		//chooser.AddDefault(autoNameDefault, autoNameDefault);
-		//chooser.AddObject(autoNameCustom, autoNameCustom);
-		//frc::SmartDashboard::PutData("Auto Modes", &chooser);
-
-		// gearServo is left, gearServo2 is right
 		gearServoRight = new Servo(5); //right servo on practice bot
 		gearServoLeft = new Servo(3); //left is 3 on practice bot
 		climber = new TalonSRX(7);
@@ -412,15 +346,8 @@ private:
 	}
 
 	void AutonomousPeriodic() {
-		//std::cout << "Motors = LF: " << lFrontMotor->Get() << "  RF: " << rFrontMotor->Get() << "  LR: " <<
-		//	lBackMotor->Get() << "  RR: " << rBackMotor->Get() << std::endl;
-
-		//std::cout << "Angle: " << ahrs->GetAngle() << "  Rate: " << ahrs->GetRate() << std::endl;
 
 		switch (autoState) {
-		case kTurningToSpring:
-			autoTurningToSpring();
-			break;
 		case kDrivingForward:
 			autoDrivingForward();
 			break;
@@ -432,9 +359,6 @@ private:
 			break;
 		case kTurningToBoiler:
 			autoTurningToBoiler();
-			break;
-		case kDrivingToLaunchPosition:
-			autoDrivingToLaunchPosition();
 			break;
 		case kLaunching:
 			autoLaunching();
@@ -448,12 +372,12 @@ private:
 
 	void TeleopInit() {
 		m_pixy->setTiltandBrightness(kNormalBrightness, 1);
+		m_pixy->clearTargets();
 	}
 
 	void TeleopPeriodic() { // 0: leftX, 1: leftY, 2: left trigger, 3: right trigger, 4: rightX, 5: rightY
 
 		//SmartDashboard::PutNumber("Gyro Angle", ahrs->GetAngle());
-
 
 		// Competition Robot Servos
 		/*if (stick -> GetRawButton(6)){
@@ -560,13 +484,15 @@ private:
 								deadBand(0.0),
 								deadBand(stick->GetRawAxis(1)),
 								-turnPIDOutput.correction,
-								ahrs->GetAngle());
+								0.0);
+								//ahrs->GetAngle());
 			} else {
 			drive->MecanumDrive_Cartesian(
 					deadBand(stick->GetRawAxis(0)),
 					deadBand(stick->GetRawAxis(1)),
 					-turnPIDOutput.correction,
-					ahrs->GetAngle());
+					0.0);
+					//ahrs->GetAngle());
 			}
 		} else {
 			turnController->Disable();
