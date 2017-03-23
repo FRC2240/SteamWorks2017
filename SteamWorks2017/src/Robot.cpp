@@ -40,7 +40,7 @@ private:
 	const int kGearTargetArea = (kGearTargetWidth * kGearTargetHeight);
 
 	// Tunable parameters for driving
-	const double kSpinRateLimiter = 0.3;
+	const double kSpinRateLimiter = 0.5;
 
 	// Tunable parameters for autonomous
 	const double kAutoSpeed = 0.5;
@@ -50,7 +50,7 @@ private:
 	// Tunable parameters for the PID Controllers
 	const double kP = 0.01;
 	const double kI = 0.00;
-	const double kD = 0.01;
+	const double kD = 0.03;
 	const double kF = 0.00;
 
 	/* This tuning parameter indicates how close to "on target" the    */
@@ -132,11 +132,15 @@ private:
 	void autoDrivingForward() {
 		autoTimer++;
 
-		if(autoTimer <= 105)
+		if(autoTimer <= 120)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, -0.6, -turnPIDOutput.correction, ahrs->GetAngle());
+			double throttle = 0.2+autoTimer*0.002;
+			if (throttle > 0.31) {
+				throttle = 0.35;
+			}
+			drive->MecanumDrive_Cartesian(0.05, -0.5/*-0.6*/, -turnPIDOutput.correction, ahrs->GetAngle());
 		}
 		else
 		{
@@ -160,11 +164,11 @@ private:
 
 	void autoDrivingBackward() {
 		autoTimer++;
-		if (autoTimer < 60)
+		if (autoTimer < 50)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.0, 0.6, -turnPIDOutput.correction, 0.0);
+			drive->MecanumDrive_Cartesian(0.0, 0.5, -turnPIDOutput.correction, 0.0);
 		} else {
 			autoTimer = 0;
 			autoState = kTurningToBoiler;
@@ -203,9 +207,14 @@ private:
 			autoTurnToBoilerAngle = ahrs->GetAngle() + correction;
 			turnController->SetSetpoint(autoTurnToBoilerAngle);
 			turnController->Enable();
-			drive->MecanumDrive_Cartesian(0.15, -0.5, -turnPIDOutput.correction, 0.0);
 
-			if (width > 28) {
+			double throttle = 0.05+(autoTimer-100)*0.002;
+						if (throttle > 0.6) {
+							throttle = 0.3;
+						}
+			drive->MecanumDrive_Cartesian(0.05, -0.4, -turnPIDOutput.correction, 0.0);
+
+			if (width > 20) {
 				autoTimer = 0;
 				autoState = kLaunching;
 			}
@@ -239,11 +248,11 @@ private:
 		autoTurnToBoilerAngle = ahrs->GetAngle() + correction;
 		turnController->SetSetpoint(autoTurnToBoilerAngle);
 		turnController->Enable();
-		drive->MecanumDrive_Cartesian(0.0, -0.0, -turnPIDOutput.correction, 0.0);
+		drive->MecanumDrive_Cartesian(0.0, 0.0, -turnPIDOutput.correction, 0.0);
 
-		if (autoTimer < 700) {
-			//shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
-			//shooter -> Set(4100.0);
+		if (autoTimer < 1000) {
+			shooter -> SetTalonControlMode(CANTalon::kSpeedMode);
+			shooter -> Set(4100.0);
 
 			if (autoTimer > 50) {
 				feederMotor ->Set(0.3);
