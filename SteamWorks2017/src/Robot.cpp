@@ -21,15 +21,16 @@ private:
 	double driveAngle;
 	bool isRobotCentric = false;
 	double autoTurnToBoilerAngle = 0.0;
+	bool autoReleaseGear = false;
 
 	const std::string autoNameDefault = "left";
 	std::string autoSelected;
 
 	// Servo constants
-	const double kServoRightOpen   =  0.5;
-	const double kServoRightClosed = -0.5;
-	const double kServoLeftOpen    = -0.1;
-	const double kServoLeftClosed  =  0.5;
+	const double kServoRightOpen   = 0.3; //0.5;
+	const double kServoRightClosed = 0.0; //0.9; //-0.5;
+	const double kServoLeftOpen    = 0.0; //-0.1;
+	const double kServoLeftClosed  = 0.3; //0.5;
 
 
 	// Tunable parameters for target detection
@@ -136,16 +137,21 @@ private:
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
-			double throttle = 0.2+autoTimer*0.002;
-			if (throttle > 0.31) {
-				throttle = 0.35;
-			}
-			drive->MecanumDrive_Cartesian(0.05, -0.5/*-0.6*/, -turnPIDOutput.correction, ahrs->GetAngle());
+
+			drive->MecanumDrive_Cartesian(0.032, -0.5/*-0.6*/, -turnPIDOutput.correction, ahrs->GetAngle());
 		}
 		else
 		{
 			drive->MecanumDrive_Cartesian(0.0, 0.0, 0.0, 0.0);
-			autoState = kPlacingGear;
+			if (autoReleaseGear) {
+				autoState = kPlacingGear;
+			} else {
+				if (abs(autoTurnToBoilerAngle) < 10.0) {
+					autoState = kDoNothing;
+				} else {
+					autoState = kDrivingBackward;
+				}
+			}
 			autoTimer = 0;
 		}
 	}
@@ -154,8 +160,8 @@ private:
 		autoTimer++;
 		if (autoTimer < 30)
 		{
-			gearServoRight -> Set(0.5);
-			gearServoLeft -> Set(-0.1);
+			gearServoRight -> Set(kServoRightOpen);
+			gearServoLeft -> Set(kServoLeftOpen);
 		} else {
 			autoTimer = 0;
 			autoState = kDrivingBackward;
@@ -208,10 +214,7 @@ private:
 			turnController->SetSetpoint(autoTurnToBoilerAngle);
 			turnController->Enable();
 
-			double throttle = 0.05+(autoTimer-100)*0.002;
-						if (throttle > 0.6) {
-							throttle = 0.3;
-						}
+
 			drive->MecanumDrive_Cartesian(0.05, -0.4, -turnPIDOutput.correction, 0.0);
 
 			if (width > 20) {
@@ -331,15 +334,33 @@ private:
         shooter -> Set(0.0);
 		autoState = kDrivingForward; // Initial state
 		ahrs->ZeroYaw();             // Initialize to zero
+		autoTurnToBoilerAngle = 0.0;
+		autoReleaseGear = false;
 
 		autoSelected = SmartDashboard::GetString("Auto Selector", autoNameDefault);
 		std::cout << "Auto selected: " << autoSelected << std::endl;
 
-		if (autoSelected == "right") {
+		if (autoSelected.find("r") != std::string::npos) {
+			std::cout << "right\n";
 			autoTurnToBoilerAngle = 90.0;
-		} else {
+		} else if (autoSelected.find("l") != std::string::npos){
+			std::cout << "left\n";
 			autoTurnToBoilerAngle = -90.0;
+		} else {
+			std::cout << "no\n";
+			autoTurnToBoilerAngle = 0.0;
 		}
+
+		if (autoSelected.find("c") != std::string::npos) {
+			std::cout << "true\n";
+			autoReleaseGear = true;
+		} else {
+			std::cout << "false\n";
+			autoReleaseGear = false;
+		}
+
+
+		autoTimer = 0;
 
 		//turnController->SetSetpoint(0.0);
 		//turnController->Enable();
@@ -390,14 +411,15 @@ private:
 
 		// Competition Robot Servos
 		/*if (stick -> GetRawButton(6)){
-			gearServoRight -> Set(.5);
-
-			gearServoLeft -> Set(.3);
+			gearServoRight -> Set(0.5);
+			gearServoLeft -> Set(0.3);
 
 		} else {
-			gearServoRight -> Set(.9);
-			gearServoLeft -> Set(0);
+			gearServoRight -> Set(0.9);
+			gearServoLeft -> Set(0.0);
 		}*/
+		//gearServoRight -> Set(0.0);
+		//gearServoLeft -> Set(0.0);
 
 		// Practice Robot
 		if (stick -> GetRawButton(6)) { //gearservo is right, gearservo2 is left
