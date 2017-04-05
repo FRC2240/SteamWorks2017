@@ -133,12 +133,12 @@ private:
 	void autoDrivingForward() {
 		autoTimer++;
 
-		if(autoTimer <= 120)
+		if(autoTimer <= 140)
 		{
 			turnController->SetSetpoint(0.0);
 			turnController->Enable();
 
-			drive->MecanumDrive_Cartesian(0.032, -0.5/*-0.6*/, -turnPIDOutput.correction, ahrs->GetAngle());
+			drive->MecanumDrive_Cartesian(0.05, -0.5/*-0.6*/, -turnPIDOutput.correction, ahrs->GetAngle());
 		}
 		else
 		{
@@ -217,7 +217,7 @@ private:
 
 			drive->MecanumDrive_Cartesian(0.05, -0.4, -turnPIDOutput.correction, 0.0);
 
-			if (width > 20) {
+			if (width > 21) {
 				autoTimer = 0;
 				autoState = kLaunching;
 			}
